@@ -1,0 +1,11 @@
+# ZCode session/agent files
+.zcode/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+
+# Home Assistant dev
+habot/
