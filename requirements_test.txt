@@ -1,0 +1,9 @@
+# Test dependencies. Recreate with:
+#   py -3.11 -m venv venv && venv/Scripts/pip install -r requirements_test.txt
+# Python 3.11 is deliberate: newer Home Assistant versions pin C extensions
+# that have no Python 3.13 Windows wheels (3.11 wheels are all prebuilt).
+pytest
+pytest-homeassistant-custom-component==0.13.109
+# Windows test machines have no system IANA tz database; the hass fixture
+# needs one (US/Pacific) to construct Home Assistant.
+tzdata

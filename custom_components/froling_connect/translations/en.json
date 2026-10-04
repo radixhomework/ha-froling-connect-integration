@@ -1,0 +1,86 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to your Fr\u00f6ling Connect account",
+        "description": "Use the credentials of your Fr\u00f6ling Connect app account.",
+        "data": {
+          "email": "Email address",
+          "password": "Password"
+        }
+      },
+      "facility": {
+        "title": "Choose an installation",
+        "description": "This account manages more than one installation. Choose the one to monitor.",
+        "data": {
+          "facility_id": "Installation"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate your Fr\u00f6ling Connect account",
+        "description": "The stored credentials no longer work. Enter your Fr\u00f6ling Connect app credentials again.",
+        "data": {
+          "email": "Email address",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid email address or password.",
+      "cannot_connect": "Failed to connect to the Fr\u00f6ling Connect service.",
+      "unknown_facility": "The selected installation is no longer available."
+    },
+    "abort": {
+      "already_configured": "This installation is already configured.",
+      "no_facilities": "This account does not manage any installation.",
+      "reauth_successful": "Re-authentication was successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Fr\u00f6ling Connect options",
+        "data": {
+          "update_interval": "Polling interval in seconds (values below 30 are raised to 30)."
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "boilerOn": {"name": "Boiler"},
+      "bufferPumpControl": {"name": "Buffer pump"},
+      "circuitPumpControl": {"name": "Circuit pump"},
+      "dhwPumpControl": {"name": "DHW pump"},
+      "remoteOn": {"name": "Remote control"}
+    },
+    "sensor": {
+      "actualFlowTemp": {"name": "Actual flow temperature"},
+      "boilerSetTemp": {"name": "Boiler set temperature"},
+      "boilerTemp": {"name": "Boiler temperature"},
+      "bufferSensorAmount": {"name": "Buffer sensor amount"},
+      "bufferTankCharge": {"name": "Buffer tank charge"},
+      "bufferTankChargeDiskret": {"name": "Buffer tank charge (discrete)"},
+      "bufferTempBottom": {"name": "Buffer bottom temperature"},
+      "bufferTempMiddleNewGeneration2": {"name": "Storage temperature sensor 2"},
+      "bufferTempMiddleNewGeneration3": {"name": "Storage temperature sensor 3"},
+      "bufferTempTop": {"name": "Buffer top temperature"},
+      "desiredRoomTemp": {"name": "Desired room temperature"},
+      "dhwTempTop": {"name": "DHW top temperature"},
+      "fanControl": {"name": "Fan control"},
+      "flueGasTemp": {"name": "Flue gas temperature"},
+      "hoursSinceLastMaintenance": {"name": "Hours since last maintenance"},
+      "ignitionConfigured": {"name": "Ignition configured"},
+      "ignitionWhenBufferTempBelow": {"name": "Ignition when buffer temperature below"},
+      "mode": {"name": "Mode"},
+      "mode2": {"name": "Boiler mode"},
+      "notifications": {"name": "Notifications"},
+      "operationHours": {"name": "Operation hours"},
+      "outTemp": {"name": "Outside temperature"},
+      "resOxygenContent": {"name": "Residual oxygen content"},
+      "returnFlowTemp": {"name": "Return flow temperature"},
+      "setDhwTemp": {"name": "DHW set temperature"},
+      "state": {"name": "Boiler state"}
+    }
+  }
+}

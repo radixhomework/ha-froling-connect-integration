@@ -1,0 +1,10 @@
+{
+  "domain": "froling_connect",
+  "name": "Fröling Connect",
+  "codeowners": ["@radixhomework"],
+  "config_flow": true,
+  "documentation": "https://github.com/radixhomework/ha-froling-connect-integration",
+  "iot_class": "cloud_polling",
+  "requirements": [],
+  "version": "0.0.1"
+}
