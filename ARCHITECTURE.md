@@ -21,6 +21,7 @@ custom_components/froling_connect/
   translations/
 tests/
   fixtures/                    recorded Fröling Connect API responses
+hacs.json                      HACS repository metadata
 openspec/                      OpenSpec: proposals, delta specs, design, tasks
 ```
 
@@ -67,6 +68,6 @@ The full decision log with alternatives lives in the OpenSpec change artifacts
 
 - Quality gates: CodeQL, SonarQube, and PR comment review; the review loop is
   capped at 3 autonomous iterations before escalating to the user
-  (see AGENT.md).
+  (see AGENTS.md).
 - GitHub Actions wiring for CodeQL and SonarQube is planned but not yet in
   place; pytest is the currently enforced gate.

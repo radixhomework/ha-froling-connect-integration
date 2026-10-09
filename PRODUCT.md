@@ -33,6 +33,11 @@ Fröling Connect mobile app uses.
 - No local protocols (Modbus/RS232) and no push channels: the Fröling Connect
   cloud API is the single supported path.
 
+## Distribution
+
+Distributed via HACS as a custom repository; manual file-copy installation is
+not a supported path.
+
 ## Success criteria
 
 - Reliable monitoring that survives API quirks (localized labels,
