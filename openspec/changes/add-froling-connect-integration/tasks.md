@@ -41,7 +41,7 @@
 
 ## 7. Spikes, Live Validation, and Wrap-up
 
-- [ ] 7.1 Coverage spike against the real PE1 facility: log which parameters the overview returns vs. cached component schemas; record the decision (overview branch vs. per-component fallback) in design.md and remove the losing branch if it is dead code
+- [x] 7.1 Coverage spike against the real PE1 facility: log which parameters the overview returns vs. cached component schemas; record the decision (overview branch vs. per-component fallback) in design.md and remove the losing branch if it is dead code
 - [ ] 7.2 Freshness spike: timestamp when a changing value (e.g. boiler temperature) updates upstream; note the observed boiler→cloud sync latency in design.md and reconsider the 60 s default if it justifies slower
 - [ ] 7.3 Capture PE1-specific API responses as additional fixtures (sanitized) and pin mapping tests to them; verify the full entity surface for the real facility
 - [ ] 7.4 Run a 24 h soak on the real installation: no 429s at default cadence, entities stable, re-auth survives a token expiry; record results

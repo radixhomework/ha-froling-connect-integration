@@ -1,4 +1,4 @@
-"""Coordinator tests: discovery, refresh branches, pacing, backoff, recovery."""
+"""Coordinator tests: discovery, refresh cycle, pacing, backoff, recovery."""
 
 from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,6 +16,7 @@ from custom_components.froling_connect.const import (
 )
 from custom_components.froling_connect.coordinator import (
     MAX_BACKOFF_INTERVAL,
+    OVERVIEW_EVERY_CYCLES,
     FroelingConnectCoordinator,
 )
 from custom_components.froling_connect.exceptions import (
@@ -110,6 +111,12 @@ def make_coordinator(hass, client, update_interval: int = 60):
     )
 
 
+def skip_slow_subcadences(coordinator) -> None:
+    """Pretend overview/notifications were just fetched (isolate the value cycle)."""
+    coordinator._cycles_since_overview = 0
+    coordinator._cycles_since_notifications = 0
+
+
 @pytest.fixture(autouse=True)
 def no_pace(monkeypatch):
     """Keep the pacing pause out of test timing (mechanism is tested separately)."""
@@ -123,7 +130,7 @@ def test_coordinator_clamps_interval_to_floor(hass):
 
 
 #
-# 4.1 — schema discovery and the overview refresh cycle
+# schema discovery
 #
 async def test_setup_discovers_component_schemas(hass, load_fixture):
     client = make_client(load_fixture)
@@ -141,54 +148,20 @@ async def test_setup_discovers_component_schemas(hass, load_fixture):
     ]
 
 
-async def test_overview_cycle_issues_one_request_and_matches_schema(hass, load_fixture):
+#
+# value refresh: every component, every cycle
+#
+async def test_component_cycle_updates_all_values(hass, load_fixture):
     client = make_client(load_fixture)
     coordinator = make_coordinator(hass, client)
     await coordinator.async_setup()
+    skip_slow_subcadences(coordinator)
     client.get_component.reset_mock()
 
     data = await coordinator._async_update_data()
 
-    client.get_overview.assert_awaited_once_with(FACILITY_ID)
-    client.get_component.assert_not_awaited()  # schema is cached, values only
-
-    boiler = data.components["1_100"]
-    # value comes from the overview ("76"), not the schema's stored one ("78")
-    assert boiler.schema.parameters["boilerTemp"].value == 76.0
-    assert boiler.display_values["state"] == "Standby"
-    assert boiler.schema.parameters["state"].value == "19"
-    # schema parameter whose value the overview also reports: overview wins
-    assert data.components["300_3100"].schema.parameters["actualFlowTemp"].value == 39.0
-    # facility-level reading
-    assert data.out_temp is not None
-    assert data.out_temp.value == 20.0
-
-
-async def test_overview_parameters_unknown_to_schema_are_ignored(hass, load_fixture):
-    client = make_client(load_fixture)
-    coordinator = make_coordinator(hass, client)
-    await coordinator.async_setup()
-
-    data = await coordinator._async_update_data()
-
-    # the overview fixture carries mode2/boilerOn/... that the schema lacks
-    assert "mode2" not in data.components["1_100"].schema.parameters
-    assert "mode2" not in data.components["1_100"].display_values
-
-
-#
-# 4.2 — per-component polling fallback
-#
-async def test_component_polling_fallback_fetches_every_component(hass, load_fixture):
-    client = make_client(load_fixture)
-    coordinator = make_coordinator(hass, client)
-    await coordinator.async_setup()
-    coordinator.enable_component_polling()
-    client.get_component.reset_mock()
-
-    data = await coordinator._async_update_data()
-
-    client.get_overview.assert_not_awaited()
+    assert client.get_overview.await_count == 0
+    assert client.get_notifications.await_count == 0
     assert [call.args[1] for call in client.get_component.await_args_list] == [
         "1_100",
         "300_3100",
@@ -199,11 +172,65 @@ async def test_component_polling_fallback_fetches_every_component(hass, load_fix
 
 
 #
-# 4.3 — sequential pacing
+# overview sub-cadence: facility value + enum display texts, every Nth cycle
 #
-async def test_component_polling_paces_between_sequential_requests(
-    hass, load_fixture, monkeypatch
+async def test_overview_cadence_supplies_facility_value_and_display_texts(
+    hass, load_fixture
 ):
+    client = make_client(load_fixture)
+    coordinator = make_coordinator(hass, client)
+    await coordinator.async_setup()
+    client.get_component.reset_mock()
+
+    # cycle 1: forced overview fetch
+    data = await coordinator._async_update_data()
+    assert client.get_overview.await_count == 1
+    assert data.out_temp.value == 20.0
+    boiler = data.components["1_100"]
+    assert boiler.display_texts["state"]["19"] == "Standby"
+    assert boiler.display_texts["mode2"]["2"] == "Automatic"
+
+    # cycles 2..5: values refresh, no overview request
+    for _ in range(4):
+        await coordinator._async_update_data()
+    assert client.get_overview.await_count == 1
+    assert client.get_component.await_count == 2 * 5
+
+    # cycle 6: overview fetched again
+    await coordinator._async_update_data()
+    assert client.get_overview.await_count == 2
+
+
+async def test_changed_state_never_shows_a_stale_label(hass, load_fixture):
+    client = make_client(load_fixture)
+    coordinator = make_coordinator(hass, client)
+    await coordinator.async_setup()
+
+    await coordinator._async_update_data()  # cycle 1: display text for "19"
+
+    # the boiler state changes to a raw the overview has not labeled yet
+    changed = boiler_detailed()
+    for parameter in changed["stateView"]:
+        if parameter["name"] == "state":
+            parameter["value"] = "25"
+    client.get_component = AsyncMock(
+        side_effect=lambda facility_id, cid: Component.from_dict(
+            changed, detailed=True
+        )
+    )
+    skip_slow_subcadences(coordinator)
+    data = await coordinator._async_update_data()
+
+    parameter = data.components["1_100"].schema.parameters["state"]
+    assert parameter.raw_value == "25"
+    # no display text exists for the new raw: resolution must not reuse "19"'s
+    assert "25" not in data.components["1_100"].display_texts.get("state", {})
+
+
+#
+# sequential pacing
+#
+async def test_component_fetches_are_paced_and_sequential(hass, load_fixture, monkeypatch):
     sleeps = []
 
     async def fake_sleep(seconds):
@@ -214,10 +241,7 @@ async def test_component_polling_paces_between_sequential_requests(
     coordinator = make_coordinator(hass, client)
     await coordinator.async_setup()
     sleeps.clear()
-    # pretend notifications were just fetched so this cycle measures only
-    # the component-polling pacing (notifications have their own test)
-    coordinator._cycles_since_notifications = 0
-    coordinator.enable_component_polling()
+    skip_slow_subcadences(coordinator)
 
     await coordinator._async_update_data()
 
@@ -226,7 +250,7 @@ async def test_component_polling_paces_between_sequential_requests(
 
 
 #
-# 4.4 — rate limiting: doubling, Retry-After, cap, single warning, restore
+# rate limiting: doubling, Retry-After, cap, single warning, restore
 #
 async def test_rate_limit_honors_retry_after_then_doubles(hass, load_fixture):
     client = make_client(load_fixture)
@@ -274,7 +298,10 @@ async def test_success_restores_interval_and_rearms_warning(hass, load_fixture, 
     await coordinator._async_update_data()
     assert coordinator.update_interval == timedelta(seconds=60)
 
+    # a new rate-limit episode warns again (force the overview sub-cadence,
+    # which the successful cycle just reset)
     caplog.clear()
+    coordinator._cycles_since_overview = OVERVIEW_EVERY_CYCLES
     client.get_overview = AsyncMock(side_effect=RateLimitError(None))
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
@@ -282,14 +309,15 @@ async def test_success_restores_interval_and_rearms_warning(hass, load_fixture, 
 
 
 #
-# 4.5 — transient failures: backoff, availability, recovery, reauth
+# transient failures: backoff, availability, recovery, reauth
 #
 async def test_transient_failures_back_off_and_recover(hass, load_fixture):
     client = make_client(load_fixture)
     coordinator = make_coordinator(hass, client)
     await coordinator.async_setup()
-    client.get_overview = AsyncMock(side_effect=NetworkError("down"))
 
+    # the authoritative value path fails: whole cycles fail and back off
+    client.get_component = AsyncMock(side_effect=NetworkError("down"))
     for expected in (120, 240, 480):
         with pytest.raises(UpdateFailed):
             await coordinator._async_update_data()
@@ -299,8 +327,11 @@ async def test_transient_failures_back_off_and_recover(hass, load_fixture):
     await coordinator.async_refresh()
     assert coordinator.last_update_success is False
 
-    client.get_overview = AsyncMock(
-        return_value=FacilityOverview.from_dict(load_fixture("overview.json"))
+    detailed = {"1_100": boiler_detailed(), "300_3100": circuit_detailed()}
+    client.get_component = AsyncMock(
+        side_effect=lambda facility_id, cid: Component.from_dict(
+            detailed[cid], detailed=True
+        )
     )
     data = await coordinator._async_update_data()
     await coordinator.async_refresh()

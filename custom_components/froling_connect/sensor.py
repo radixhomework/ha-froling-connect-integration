@@ -88,11 +88,10 @@ class FroelingSensor(FroelingEntity, SensorEntity):
     def native_value(self) -> float | str | None:
         """The current value: numbers for readings, labels for enum states."""
         if self._mapping.diagnostic:
-            return enum_state_label(
-                self._mapping,
-                self._parameter,
-                self._snapshot.display_values.get(self._parameter.name),
-            )
+            display_label = self._snapshot.display_texts.get(
+                self._parameter.name, {}
+            ).get(self._parameter.raw_value)
+            return enum_state_label(self._mapping, self._parameter, display_label)
         return self._parameter.value
 
 

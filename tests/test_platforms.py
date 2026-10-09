@@ -25,7 +25,7 @@ FACILITY_ID = 12345
 INIT_CLIENT = "custom_components.froling_connect.FroelingClient"
 
 
-def make_client(load_fixture) -> MagicMock:
+def make_client(load_fixture, overview: FacilityOverview | None = None, component: dict | None = None) -> MagicMock:
     """Client mock serving the recorded boiler fixtures (component + overview)."""
     listing = [
         c
@@ -37,11 +37,11 @@ def make_client(load_fixture) -> MagicMock:
     client.get_component_list = AsyncMock(return_value=listing)
     client.get_component = AsyncMock(
         return_value=Component.from_dict(
-            load_fixture("component.json"), detailed=True
+            component or load_fixture("component.json"), detailed=True
         )
     )
     client.get_overview = AsyncMock(
-        return_value=FacilityOverview.from_dict(load_fixture("overview.json"))
+        return_value=overview or FacilityOverview.from_dict(load_fixture("overview.json"))
     )
     client.get_notifications = AsyncMock(
         return_value=[
@@ -57,6 +57,7 @@ async def setup_integration(
     load_fixture,
     overview: FacilityOverview | None = None,
     options: dict | None = None,
+    component: dict | None = None,
 ):
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -70,9 +71,7 @@ async def setup_integration(
         options=options or {},
     )
     entry.add_to_hass(hass)
-    client = make_client(load_fixture)
-    if overview is not None:
-        client.get_overview = AsyncMock(return_value=overview)
+    client = make_client(load_fixture, overview=overview, component=component)
     # patch the class so construction yields the scripted instance
     with patch(INIT_CLIENT, MagicMock(return_value=client)):
         assert await hass.config_entries.async_setup(entry.entry_id)
@@ -97,9 +96,10 @@ def state_of(hass, unique_id: str):
 async def test_fixture_parameters_become_read_only_entities(hass, load_fixture):
     await setup_integration(hass, load_fixture)
 
-    # boiler temperature: overview value, unit and device class applied
+    # boiler temperature: live value from the component response, unit and
+    # device class applied
     boiler_temp = state_of(hass, f"{FACILITY_ID}_1_100_3_0")
-    assert boiler_temp.state == "76.0"
+    assert boiler_temp.state == "78.0"
     assert boiler_temp.attributes["unit_of_measurement"] == "°C"
     assert boiler_temp.attributes["device_class"] == "temperature"
 

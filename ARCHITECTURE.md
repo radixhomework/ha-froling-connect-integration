@@ -48,9 +48,12 @@ openspec/                      OpenSpec: proposals, delta specs, design, tasks
    Future writes are limited to an allowlist (vacation mode, operating mode)
    as named, validated operations behind an explicit opt-in.
 2. **One shared coordinator per config entry.** All entities read from a
-   single fetch. Parameter schemas are discovered at setup and cached; values
-   are polled per cycle via `overview`, with a per-component polling fallback
-   if overview coverage proves incomplete.
+   single fetch cycle. Parameter schemas are discovered at setup and cached;
+   component values are polled every cycle from the components themselves
+   (live evidence showed the whole-facility overview does not cover every
+   parameter); the overview runs on a slower sub-cadence for facility-level
+   readings (outside temperature) and enum display texts, with rate-limit
+   and authentication failures still backing off or triggering reauth.
 3. **Polling policy.** Default 60 s, user-configurable with a 30 s floor;
    HTTP 429 doubles the interval up to a 15-minute cap (honoring
    `Retry-After`) and restores it after success; requests run sequentially

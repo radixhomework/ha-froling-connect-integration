@@ -2,11 +2,13 @@
 
 One coordinator per config entry performs every request: it discovers the
 component parameter schemas once at setup, then refreshes current values each
-cycle — from the whole-facility overview by default (one request per cycle),
-or from each component when component polling is enabled (the fallback for
-incomplete overview coverage, design D3). Requests run sequentially with a
-short pause; failures back off up to a 15-minute cap and restore the
-configured interval on success.
+cycle by fetching every component (live evidence on the reference PE1 showed
+the whole-facility overview does not cover every parameter — see design.md,
+decision D3). The overview itself runs on a slower sub-cadence: it is the
+only source of facility-level values (outside temperature) and of localized
+display texts for enum states. Requests run sequentially with a short pause;
+failures back off up to a 15-minute cap and restore the configured interval
+on success.
 """
 
 from __future__ import annotations
@@ -33,6 +35,10 @@ REQUEST_PAUSE = 0.5
 # Backoff ceiling, per the data-refresh spec (15 minutes).
 MAX_BACKOFF_INTERVAL = 900
 
+# The overview is the only source of facility-level values and enum display
+# texts; component values come from the component fetches every cycle.
+OVERVIEW_EVERY_CYCLES = 5
+
 # Notifications ride the same coordinator but on a slower sub-cadence
 # (fetched on the first cycle, then every Nth cycle).
 NOTIFICATIONS_EVERY_CYCLES = 5
@@ -40,11 +46,12 @@ NOTIFICATIONS_EVERY_CYCLES = 5
 
 @dataclass
 class ComponentSnapshot:
-    """A component's cached schema plus the display texts of its values."""
+    """A component's cached schema plus its known enum display texts."""
 
     schema: Component
-    # parameter name -> localized display text from the overview (enum states)
-    display_values: dict[str, str] = field(default_factory=dict)
+    # parameter name -> raw value -> display text (from the overview); kept
+    # per raw value so a changed state never shows a stale label
+    display_texts: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -84,8 +91,8 @@ class FroelingConnectCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._backoff_interval: int | None = None
         self._consecutive_failures = 0
         self._rate_limit_warned = False
-        self._component_polling = False
-        # first cycle fetches notifications, then every NOTIFICATIONS_EVERY_CYCLES
+        # first cycle fetches overview and notifications, then every Nth cycle
+        self._cycles_since_overview = OVERVIEW_EVERY_CYCLES
         self._cycles_since_notifications = NOTIFICATIONS_EVERY_CYCLES
         self.data = CoordinatorData()
 
@@ -101,10 +108,6 @@ class FroelingConnectCoordinator(DataUpdateCoordinator[CoordinatorData]):
             )
             if index < len(components) - 1:
                 await asyncio.sleep(REQUEST_PAUSE)
-
-    def enable_component_polling(self) -> None:
-        """Switch value refreshes from the overview to per-component polling."""
-        self._component_polling = True
 
     async def _async_update_data(self) -> CoordinatorData:
         """Fetch one cycle of values, updating the shared data in place."""
@@ -123,46 +126,32 @@ class FroelingConnectCoordinator(DataUpdateCoordinator[CoordinatorData]):
         return self.data
 
     async def _async_fetch_values(self) -> None:
-        """Refresh current values plus (on its sub-cadence) the notifications."""
-        if self._component_polling:
-            await self._async_fetch_components()
-        else:
-            await self._async_fetch_overview()
+        """Refresh component values every cycle; overview on its sub-cadence."""
+        await self._async_fetch_components()
+
+        self._cycles_since_overview += 1
+        if self._cycles_since_overview >= OVERVIEW_EVERY_CYCLES:
+            await asyncio.sleep(REQUEST_PAUSE)
+            try:
+                await self._async_fetch_overview()
+            except (RateLimitError, AuthenticationError):
+                raise  # back off / re-authenticate: never degrade these
+            except FroelingConnectError as err:
+                # a missed overview only delays display texts, not values
+                _LOGGER.warning("Failed to fetch the facility overview: %s", err)
+            self._cycles_since_overview = 0
 
         self._cycles_since_notifications += 1
         if self._cycles_since_notifications >= NOTIFICATIONS_EVERY_CYCLES:
             await asyncio.sleep(REQUEST_PAUSE)
             try:
                 await self._async_fetch_notifications()
-            except RateLimitError:
-                raise  # back off the whole cycle
+            except (RateLimitError, AuthenticationError):
+                raise  # back off / re-authenticate: never degrade these
             except FroelingConnectError as err:
                 # stale alarm surface must not fail the value refresh
                 _LOGGER.warning("Failed to fetch notifications: %s", err)
             self._cycles_since_notifications = 0
-
-    async def _async_fetch_overview(self) -> None:
-        """Apply current values from one overview request to the cached schemas."""
-        overview = await self._client.get_overview(self._facility_id)
-        self.data.out_temp = overview.out_temp
-        for component_id, overview_component in overview.components.items():
-            snapshot = self.data.components.get(component_id)
-            if snapshot is None:
-                _LOGGER.debug(
-                    "Overview contains unknown component %s", component_id
-                )
-                continue
-            for name, overview_value in overview_component.values.items():
-                parameter = snapshot.schema.parameters.get(name)
-                if parameter is None:
-                    _LOGGER.debug(
-                        "Overview contains unknown parameter %s of %s",
-                        name,
-                        component_id,
-                    )
-                    continue
-                parameter.raw_value = overview_value.raw_value
-                snapshot.display_values[name] = overview_value.display_value
 
     async def _async_fetch_components(self) -> None:
         """Refresh current values by fetching every component (paced, sequential)."""
@@ -179,6 +168,24 @@ class FroelingConnectCoordinator(DataUpdateCoordinator[CoordinatorData]):
                     cached.raw_value = parameter.raw_value
             if index < len(snapshots) - 1:
                 await asyncio.sleep(REQUEST_PAUSE)
+
+    async def _async_fetch_overview(self) -> None:
+        """Harvest what only the overview provides: outTemp and display texts."""
+        overview = await self._client.get_overview(self._facility_id)
+        self.data.out_temp = overview.out_temp
+        for component_id, overview_component in overview.components.items():
+            snapshot = self.data.components.get(component_id)
+            if snapshot is None:
+                _LOGGER.debug(
+                    "Overview contains unknown component %s", component_id
+                )
+                continue
+            for name, overview_value in overview_component.values.items():
+                if not overview_value.display_value:
+                    continue
+                snapshot.display_texts.setdefault(name, {})[
+                    overview_value.raw_value
+                ] = overview_value.display_value
 
     async def _async_fetch_notifications(self) -> None:
         """Fetch the account notifications relevant to this installation."""

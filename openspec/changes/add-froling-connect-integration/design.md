@@ -74,6 +74,16 @@ fall back to polling each component per cycle (~5 sequential requests) —
 correctness first, request count second. Parameter schemas are re-fetched
 rarely (e.g. on entity-unknown errors), not per cycle.
 
+**Resolved (live spike, 2026-10-09):** on the owner's real PE1, parameters
+existed that never updated under the overview branch — the overview does not
+cover every schema parameter. Per-component polling is therefore the value
+path (every cycle); the overview runs on a 5-cycle sub-cadence for what only
+it provides: the facility-level `outTemp` and the localized enum display
+texts (stored per raw value, so a changed state can never show a stale
+label). Rate-limit and authentication failures of those sub-cadence fetches
+still back off / trigger reauth; ordinary failures only degrade gracefully.
+No dead branch remains: both request types carry unique data.
+
 ### D4. Polling policy — default 60 s, options-flow editable, 30 s floor
 Heating data is slow-moving; the fastest signals are boiler temperature and
 the state enum. 60 s default ≈ app-like traffic (one overview request/minute).
@@ -140,7 +150,7 @@ config entry; nothing outside `config/custom_components` is modified.
 ## Open Questions
 
 - Does one `overview` request cover all monitorable PE1 parameters, or must
-  components be polled per cycle? (Spike during implementation — changes only
-  which D3 branch is active, not the specs.)
+  components be polled per cycle? **Answered (see D3): components are the
+  value path; overview kept on a sub-cadence for outTemp/display texts.**
 - Actual upstream data freshness (boiler→cloud sync latency) — may justify a
   slower-than-60 s default. (Spike; measurable, non-blocking.)
